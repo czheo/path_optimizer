@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style type="text/css">
+* {
+    border:0;
+    margin:0;
+    padding:0;
+}
+html,body {
+    height:100%;
+    position: relative;
+}
+#panel {
+    position: absolute;
+    padding-top: 50px;
+    top: 0px;
+    left: 10px;
+    width: 300px;
+    z-index: 5;
+    overflow-y: auto;
+}
+.panelItem {
+    position: relative;
+    width:100%;
+    font-size: 20px;
+    text-align: center;
+    background: white;
+    margin-top:5px;
+}
+.panelItem .remove {
+    position: absolute;
+    right : 2px;
+    top: 2px;
+    display: block;
+    cursor: pointer; 
+}
+#searchInput {
+    position: absolute;
+    top: 10px;
+    width: 98%;
+    height:30px;
+    font-size: 20px;
+    box-shadow: 5px 2px 2px rgba(0,0,0,.5);
+    padding:2px;
+}
+#log {
+    position: absolute;
+    bottom: 60px;
+    right: 5px;
+    height : 200px;
+    width : 350px;
+    z-index: 999;
+    background: white;
+    overflow-y: auto;
+}
+#optimize_button {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    width : 350px;
+    height: 50px;
+    font-size: 20px;
+    box-shadow: 5px 2px 2px rgba(0,0,0,.5);
+    z-index: 999;
+    background: white;
+    display: block;
+}
+</style>
+<script type="text/javascript" src="http://code.jquery.com/jquery-1.11.2.min.js"></script>
+</head>
+<body>
+<div id="map" style="width:100%; height:100%"></div>
+<div id="panel">
+    <form id="searchForm" action="javascript:void(0)" method="post">
+        <input type="text" id="searchInput" placeholder="Place you want to go">
+    </form>
+</div>
+<div id="log"></div>
+<button id="optimize_button">optimize</button>
+
+<script type="text/javascript" charset="utf-8" src="http://js.api.olp.yahooapis.jp/OpenLocalPlatform/V1/jsapi?appid=PCTONa2xg66NrR0TlFoTHYnMo3_Y9pWIhkQLvFGVNa0enZfWFHa9ExoyoGlgUA--"></script>
+<script type="text/javascript">
+var qp = {
+    search: function(query, cb) {
+        $.ajax({
+            url:"http://map.yahooapis.jp/OpenLocalPlatform/V1/queryPlan",
+            data: {
+                p: query,
+                candidate: true,
+                output: "jsonp"
+            },
+            dataType: "jsonp",
+            success: cb
+        });
+    }
+};
+var place_list = [];
+var Place = function(name, latlon) {
+    var self = this;
+    self.name = name;
+    var ll = latlon.split(",");
+    self.lat = ll[1];
+    self.lon = ll[0];
+    self.panelItem = $('<div class="panelItem">' + name + "<span class='remove'>✖︎</span></div>");
+    self.yll = new Y.LatLng(self.lat, self.lon);
+    self.marker = new Y.Marker(self.yll);
+    self.panelItem.place = self;
+    self.marker.bind("click", function(e) {
+        self.panelItem.css("background", "red");
+        setTimeout(function(){
+            self.panelItem.css("background", "white");
+        }, 200);
+    });
+    self.panelItem.click(function(e){
+        ymap.setZoom(15, true, self.yll, true);
+    });
+    self.panelItem.find(".remove").on("click", function(){
+        self.destroy();
+    });
+    ymap.addFeature(self.marker);
+    ymap.setZoom(15, true, self.yll, true);
+    $("#panel").append(self.panelItem);
+    place_list.push(self);
+    
+    self.destroy = function() {
+        self.panelItem.off();
+        self.marker.unbind("click");
+        self.panelItem.remove();
+        ymap.removeFeature(self.marker);
+        for(var i = place_list.length - 1; i >= 0; i--) {
+            if(place_list[i] === self) {
+               place_list.splice(i, 1);
+           }
+       }
+    }
+};
+</script>
+<script type="text/javascript">
+var ymap;
+var routeLayer;
+$(function(){
+ymap = new Y.Map("map", {
+    configure:{
+        doubleClickZoom : true,
+        scrollWheelZoom : true,
+        dragging : true,
+        continuousZoom: true
+    }
+});
+routeLayer = new Y.FeatureLayer();
+ymap.addLayer(routeLayer);
+ymap.drawMap(new Y.LatLng(35.66572, 139.73100), 17, Y.LayerSetId.NORMAL);
+$(window).bind("resize", function(){
+    ymap.updateSize(); 
+});
+$("#searchInput").keypress(function(e){
+    if ( e.which == 13 ) {
+        var query = $(this).val();
+        qp.search(query, function(data){
+            var feature = data["Feature"];
+            if (feature) {
+                var name = feature[0]["Name"];
+                var latlon = feature[0]["Geometry"]["Coordinates"];
+                var place = new Place(name, latlon);
+            } else {
+                alert("Failed to find: " + query);
+            }
+        });
+        $(this).val("");
+        return false;
+    }
+});
+$("#optimize_button").click(function(){
+    optimize(place_list);
+});
+});
+</script>
+<script type="text/javascript">
+function getDist(place1, place2, cb) {
+    $.ajax({
+        url : "http://navi.olp.yahooapis.jp/OpenLocalPlatform/V2/naviSearch",
+        data: {
+            appid:"2Fgx84Sxg67p307wWL7oRcUWdHcLkmFBoI4E6spV2wwIuXVH43Cj5lk2n0dmOCY",
+            from: place1.name + "," + place1.lon + "," + place1.lat,
+            to: place2.name + "," + place2.lon + "," + place2.lat,
+            type: 1,
+            s : 0,
+            "date": "201504041456",
+            engine: "transit",
+            dist: 10000,
+            ptn: "se,ex,al,hb,lb,sr",
+            pri: 1,
+            start: 1,
+            results: 6,
+            mode: "list",
+            detail: "simple",
+            output: "jsonp",
+        },
+        dataType: "jsonp",
+        success: cb
+    });
+}
+function print_log(msg) {
+    $("#log").append("<p>" + msg + "</p>");
+    $("#log").scrollTop($("#log")[0].scrollHeight);
+}
+
+function show_edge(optimized_list) {
+    routeLayer.clearFeatures();
+    optimized_list.forEach(function(p){
+        if (p.edge) {
+            var latlons = [];
+            lls = p.edge.split(" ");
+            lls.forEach(function(ll){
+                ll = ll.split(",");
+                latlons.push(new Y.LatLng(ll[1], ll[0]));
+            });
+
+            var style = new Y.Style(getRandomColor(), 5, 0.9);
+            var polyline = new Y.Polyline(latlons, {strokeStyle: style});
+            routeLayer.addFeature(polyline);
+        }
+    });
+}
+function getRandomColor() {
+    var letters = '0123456789ABCDEF'.split('');
+    var color = "";
+    for (var i = 0; i < 6; i++ ) {
+        color += letters[Math.floor(Math.random() * 16)];
+    }
+    return color;
+}
+
+function optimize(place_list) {
+    var optimized_list = [];
+    var last_len = 0;
+    optimized_list.push(place_list[0]);
+    print_log("start from:" +optimized_list[0].name);
+    var timer = setInterval(function(){
+        if (last_len != optimized_list.length) {
+            last_len = optimized_list.length;
+            if (optimized_list.length == place_list.length) {
+                clearInterval(timer);
+                var old_path = [];
+                var new_path = [];
+                place_list.forEach(function(p){
+                    old_path.push(p.name)
+                });
+                optimized_list.forEach(function(p){
+                    new_path.push(p.name)
+                });
+                show_edge(optimized_list);
+                print_log("======");
+                print_log("RESULT");
+                print_log("======");
+                print_log("original path: " + old_path.join(" > "));
+                print_log("optimized path: " + new_path.join(" > "));
+            } else {
+                var p = optimized_list[optimized_list.length-1];
+                print_log("find closest place from:" + p.name);
+                findClosest(p, place_list)
+            }
+        }
+    }, 1000);
+
+    function findClosest(from, place_list) {
+        var i = 0, l = place_list.length;
+        var finished = 0;
+        var count = 0;
+        var min_time = null;
+        var min_place = null;
+        place_list.forEach(function(place){
+            if (optimized_list.indexOf(place) == -1) {
+                count++;
+                getDist(from, place, function(data){
+                    var feature = data["Feature"];
+                    if(feature) {
+                        var f = feature[0];
+                        console.log(f);
+                        var time_on_board = parseInt(f["RouteInfo"]["Property"]["TimeOnBoard"]);
+                        var time_other = parseInt(f["RouteInfo"]["Property"]["TimeOther"]);
+                        var time_walk = parseInt(f["RouteInfo"]["Property"]["TimeWalk"]);
+                        var total_time = time_on_board + time_other + time_walk;
+                        var edge = f["Geometry"]["Coordinates"];
+                        print_log( "dist "+ from.name + "->" + place.name + "= "+ total_time);
+                        if (min_time == null) {
+                            place.edge = edge;
+                            min_place = place;
+                            min_time = total_time;
+                        } else {
+                            if (min_time > total_time) {
+                                place.edge = edge;
+                                min_place = place;
+                                min_time = total_time;
+                            }
+                        }
+                        finished++;
+                    } else {
+                        if(data["Code"] == "4018") {
+                            place.edge = edge;
+                            min_place = place;
+                            min_time = 0;
+                            print_log( "dist "+ from.name + "->" + place.name + "= 0");
+                            finished++;
+                        }
+                        console.log(data);
+                    }
+                });
+            }
+        });
+        var timer = setInterval(function(){
+            if(count === finished) {
+                clearInterval(timer);
+                optimized_list.push(min_place);
+                print_log("nearest place = " + min_place.name);
+            } else {
+                console.log("count", count);
+                console.log("finished", finished);
+                console.log("not ready");
+            }
+        },500);
+    }
+}
+</script>
+</body>
+</html>
